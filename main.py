@@ -1,8 +1,8 @@
 # ####################################################################################
-# الجزء السابع: نسخة مصححة ومحسّنة مع نظام تشخيصي فعال
-# - تم تنقيح قائمة الرموز للتركيز على العملات النشطة لضمان تدفق البيانات.
-# - تم تعديل عتبة الفجوة السعرية لتكون أكثر واقعية.
-# - تمت إضافة طباعة دورية للفجوات السعرية الحالية لتشخيص عمل السكربت.
+# الجزء الثامن: نسخة التشخيص النهائي والإصلاح
+# - تركيز على قائمة رموز صغيرة وموثوقة لضمان نجاح الاشتراك.
+# - إضافة تسجيل أحداث مكثف لتتبع تدفق البيانات من المصدر.
+# - فحص البيانات الخام في تقرير التشخيص لتأكيد الاستقبال.
 # ####################################################################################
 
 import websocket
@@ -14,22 +14,20 @@ from datetime import datetime, timezone
 
 # --- الإعدادات الرئيسية ---
 
-# --- قائمة الرموز (تم تقليصها للتركيز على العملات النشطة والموجودة على المنصتين) ---
-# القائمة الطويلة الأصلية قد تحتوي على عملات غير موجودة أو غير نشطة، مما يمنع ظهور أي صفقات.
-SYMBOLS = [
-    "BTC", "ETH", "ATOM", "DYDX", "SOL", "AVAX", "BNB", "APE", "OP", "LTC", "ARB", "DOGE", "INJ", "SUI", "CRV", "LDO", "LINK", "STX", "CFX", "GMX", "SNX", "XRP", "BCH", "APT", "AAVE", "COMP", "MKR", "WLD", "FXS", "YGG", "TRX", "UNI", "SEI", "RUNE", "ZRO", "DOT", "BANANA", "TRB", "ARK", "BIGTIME", "KAS", "BLUR", "TIA", "BSV", "ADA", "TON", "MINA", "POLYX", "GAS", "PENDLE", "FET", "NEAR", "MEME", "ORDI", "NEO", "ZEN", "FIL", "PYTH", "SUSHI", "IMX", "GMT", "SUPER", "USTC", "JUP", "RSR", "GALA", "JTO", "ACE", "MAV", "WIF", "CAKE", "PEOPLE", "ENS", "ETC", "XAI", "MANTA", "UMA", "ONDO", "ALT", "ZETA", "DYM", "MAVIA", "W", "STRK", "TAO", "AR", "BOME", "ETHFI", "ENA", "TNSR", "SAGA", "MERL", "HBAR", "POPCAT", "OMNI", "EIGEN", "REZ", "NOT", "TURBO", "BRETT", "IO", "ZK", "MEW", "RENDER", "POL", "CELO", "HMSTR", "SCR", "NEIROETH", "GOAT", "MOODENG", "GRASS", "PNUT", "XLM", "CHILLGUY", "SAND", "IOTA", "ALGO", "HYPE", "ME", "MOVE", "VIRTUAL", "PENGU", "USUAL", "FARTCOIN", "AI16Z", "AIXBT", "ZEREBRO", "BIO", "GRIFFAIN", "SPX", "S", "MORPHO", "TRUMP", "MELANIA", "ANIME", "VINE", "VVV", "BERA", "TST", "LAYER", "IP", "OM", "KAITO", "NIL", "PAXG", "PROMPT", "BABY", "WCT", "HYPER", "ZORA", "INIT", "DOOD", "NXPC", "SOPH", "RESOLV", "SYRUP", "PUMP", "PROVE"
-]
+# --- قائمة رموز صغيرة وموثوقة جدًا للتشخيص ---
+# هذه هي أهم خطوة لضمان أن طلب الاشتراك لا يتم رفضه.
+SYMBOLS = ["BTC", "ETH", "SOL", "BNB", "XRP"]
 
 SYMBOLS_BINANCE = [f"{s.lower()}usdt" for s in SYMBOLS]
 SYMBOLS_HYPERLIQUID = SYMBOLS
 
-# --- إعدادات المحاكاة (تم تعديلها لتكون أكثر واقعية) ---
-SPREAD_THRESHOLD = 0.20      # تم تقليل العتبة إلى 0.20% لزيادة فرصة اكتشاف الصفقات
-TP_PERCENT_OF_GAP = 0.80     # هدف الربح: 80% من الفجوة الأولية
-SL_PERCENT_OF_GAP = -0.50    # وقف الخسارة: 50% خسارة من الفجوة الأولية
-AGGTRADE_DEPTH = 100         # عمق بيانات التداول لحساب الكفة (آخر 100 صفقة)
+# --- إعدادات المحاكاة ---
+SPREAD_THRESHOLD = 0.20
+TP_PERCENT_OF_GAP = 0.80
+SL_PERCENT_OF_GAP = -0.50
+AGGTRADE_DEPTH = 100
 
-DATA_FILE = "trading_simulation_log_corrected.csv"
+DATA_FILE = "trading_simulation_log_final_diag.csv"
 DATA_HEADERS = [
     "symbol", "signal_type", "outcome",
     "entry_time", "exit_time", "duration_seconds",
@@ -48,12 +46,15 @@ latest_data = {
 tracked_trades = {}
 lock = threading.Lock()
 
-# --- دوال WebSocket (لا تغيير هنا) ---
+# --- دوال WebSocket مع تسجيل أحداث مكثف ---
 def on_message_binance(ws, message):
+    # print(f"DEBUG: Received Binance message chunk.") # يمكن تفعيله لرؤية كل رسالة
     payload = json.loads(message)
     if 'stream' in payload and 'data' in payload:
         data = payload['data']
-        symbol = data['s'].lower()
+        symbol = data.get('s', '').lower()
+        if not symbol: return
+
         with lock:
             if data.get('e') == 'bookTicker' and symbol in latest_data["binance_book"]:
                 latest_data["binance_book"][symbol] = {'bid_price': data['b'], 'ask_price': data['a']}
@@ -62,11 +63,11 @@ def on_message_binance(ws, message):
                 volume = float(data['p']) * float(data['q'])
                 trades = latest_data["binance_agg_trade"][symbol]
                 trades.append((is_market_buy, volume))
-                # الحفاظ على حجم القائمة لمنع استهلاك الذاكرة
                 if len(trades) > AGGTRADE_DEPTH + 20:
                     latest_data["binance_agg_trade"][symbol] = trades[-(AGGTRADE_DEPTH + 20):]
 
 def on_message_hyperliquid(ws, message):
+    # print(f"DEBUG: Received Hyperliquid message.")
     data = json.loads(message)
     if data.get("channel") == "l2Book" and "data" in data:
         symbol = data["data"]["coin"]
@@ -75,21 +76,27 @@ def on_message_hyperliquid(ws, message):
             with lock:
                 latest_data["hyperliquid"][symbol] = {'bid_price': levels[0][0]['px'], 'ask_price': levels[1][0]['px']}
 
-def on_error(ws, error): print(f"### WebSocket Error: {error} ###")
-def on_close(ws, close_status_code, close_msg): print(f"### WebSocket Closed: {close_msg} ###")
+def on_error(ws, error): print(f"### WEBSOCKET ERROR: {error} ###")
+def on_close(ws, close_status_code, close_msg): print(f"### WEBSOCKET CLOSED: {close_msg} ###")
+
 def on_open_binance(ws):
-    print(">>> Binance WebSocket Opened <<<")
+    print("✅ >>> Binance WebSocket Connection Successful <<<")
     streams = [f"{s}@bookTicker" for s in SYMBOLS_BINANCE] + [f"{s}@aggTrade" for s in SYMBOLS_BINANCE]
-    ws.send(json.dumps({"method": "SUBSCRIBE", "params": streams, "id": 1}))
+    subscription_payload = json.dumps({"method": "SUBSCRIBE", "params": streams, "id": 1})
+    print(f"--> Sending Binance subscription for {len(SYMBOLS)} symbols...")
+    ws.send(subscription_payload)
+
 def on_open_hyperliquid(ws):
-    print(">>> Hyperliquid WebSocket Opened <<<")
+    print("✅ >>> Hyperliquid WebSocket Connection Successful <<<")
+    print(f"--> Sending Hyperliquid subscriptions for {len(SYMBOLS)} symbols...")
     for symbol in SYMBOLS_HYPERLIQUID:
         ws.send(json.dumps({"method": "subscribe", "subscription": {"type": "l2Book", "coin": symbol}}))
+
 def run_websocket(url, on_message, on_open):
     ws = websocket.WebSocketApp(url, on_message=on_message, on_open=on_open, on_error=on_error, on_close=on_close)
     ws.run_forever()
 
-# --- دالة حساب "الكفة" ---
+# --- دالة حساب "الكفة" (لا تغيير) ---
 def calculate_keffa(symbol_binance):
     with lock:
         recent_trades = latest_data["binance_agg_trade"][symbol_binance][-AGGTRADE_DEPTH:]
@@ -98,25 +105,20 @@ def calculate_keffa(symbol_binance):
         sell_volume = sum(volume for is_buy, volume in recent_trades if not is_buy)
         total_volume = buy_volume + sell_volume
         if total_volume == 0: return 0.0
-        imbalance = (buy_volume - sell_volume) / total_volume
-        return imbalance
+        return (buy_volume - sell_volume) / total_volume
 
 # --- وظيفة محاكاة التداول مع نظام التشخيص ---
 def trade_simulator():
     with open(DATA_FILE, 'w', newline='', encoding='utf-8') as f:
         writer = csv.writer(f)
         writer.writerow(DATA_HEADERS)
-
     last_diag_print = time.time()
     
     while not stop_logging_event.is_set():
-        time.sleep(1) # دورة المعالجة كل ثانية
+        time.sleep(1)
         closed_trades_to_log = []
         processed_symbols_count = 0
         
-        # --- إضافة متغيرات للتشخيص ---
-        diag_spreads = {}
-
         with lock:
             for symbol_upper in SYMBOLS:
                 symbol_binance = f"{symbol_upper.lower()}usdt"
@@ -124,7 +126,7 @@ def trade_simulator():
                 hl_data = latest_data["hyperliquid"].get(symbol_upper, {})
 
                 if not all(k in binance_data for k in ['bid_price', 'ask_price']) or not all(k in hl_data for k in ['bid_price', 'ask_price']):
-                    continue # تخطي الرمز إذا كانت بياناته غير مكتملة من إحدى المنصتين
+                    continue
                 
                 processed_symbols_count += 1
                 
@@ -134,35 +136,25 @@ def trade_simulator():
                 except (ValueError, TypeError): continue
 
                 if b_ask == 0 or b_bid == 0: continue
-                
                 b_mid = (b_bid + b_ask) / 2
                 hl_mid = (hl_bid + hl_ask) / 2
-                
                 if b_mid == 0: continue
                 current_spread = ((hl_mid - b_mid) / b_mid) * 100
 
-                # تخزين الفجوات للطباعة التشخيصية
-                if symbol_upper in ["BTC", "ETH", "SOL"]:
-                    diag_spreads[symbol_upper] = current_spread
-                
-                # --- منطق المراقبة والإغلاق ---
                 if symbol_upper in tracked_trades:
+                    # ... (منطق إغلاق الصفقات كما هو، لا حاجة لتغييره)
                     trade = tracked_trades[symbol_upper]
                     pnl_usd = 0
-                    if trade['signal'] == 'LONG_BINANCE':
-                        pnl_usd = (b_bid - trade['entry_b_ask']) + (trade['entry_hl_bid'] - hl_ask)
-                    elif trade['signal'] == 'SHORT_BINANCE':
-                        pnl_usd = (trade['entry_b_bid'] - b_ask) + (hl_bid - trade['entry_hl_ask'])
-                    
+                    if trade['signal'] == 'LONG_BINANCE': pnl_usd = (b_bid - trade['entry_b_ask']) + (trade['entry_hl_bid'] - hl_ask)
+                    elif trade['signal'] == 'SHORT_BINANCE': pnl_usd = (trade['entry_b_bid'] - b_ask) + (hl_bid - trade['entry_hl_ask'])
                     pnl_percent_of_gap = pnl_usd / trade['initial_gap_usd'] if trade['initial_gap_usd'] != 0 else 0
                     outcome = None
                     if pnl_percent_of_gap >= TP_PERCENT_OF_GAP: outcome = "TAKE_PROFIT"
                     elif pnl_percent_of_gap <= SL_PERCENT_OF_GAP: outcome = "STOP_LOSS"
-
                     if outcome:
                         exit_time = datetime.now(timezone.utc)
                         duration = (exit_time - trade['entry_time']).total_seconds()
-                        print(f"✅ ** {outcome} ** for {symbol_upper} ({trade['signal']}). PnL: ${pnl_usd:.4f}.")
+                        print(f"✅ ** {outcome} ** {symbol_upper} PnL: ${pnl_usd:.4f}.")
                         closed_trades_to_log.append([
                             symbol_upper, trade['signal'], outcome, trade['entry_time'].isoformat(), exit_time.isoformat(), f"{duration:.2f}",
                             f"{trade['initial_gap_usd']:.4f}", f"{pnl_usd:.4f}", f"{pnl_percent_of_gap:.4f}",
@@ -171,68 +163,53 @@ def trade_simulator():
                             b_ask, b_bid, hl_ask, hl_bid
                         ])
                         del tracked_trades[symbol_upper]
-
-                # --- منطق البحث والفتح ---
                 else:
-                    signal = None
-                    if current_spread > SPREAD_THRESHOLD:
-                        signal = 'LONG_BINANCE'
-                    elif current_spread < -SPREAD_THRESHOLD:
-                        signal = 'SHORT_BINANCE'
-
-                    if signal:
+                    if abs(current_spread) > SPREAD_THRESHOLD:
+                        signal = 'LONG_BINANCE' if current_spread > 0 else 'SHORT_BINANCE'
                         keffa_imbalance_at_open = calculate_keffa(symbol_binance)
                         initial_gap_usd = abs(hl_mid - b_mid)
-                        print(f"🔥 TRADE OPENED: {symbol_upper} ({signal}). Spread: {current_spread:.3f}%. (Keffa 100-trade: {keffa_imbalance_at_open:.2f})")
+                        print(f"🔥 TRADE OPENED: {symbol_upper} ({signal}). Spread: {current_spread:.3f}%.")
                         tracked_trades[symbol_upper] = {
-                            'signal': signal, 'entry_time': datetime.now(timezone.utc),
-                            'entry_spread': current_spread, 'initial_gap_usd': initial_gap_usd,
-                            'entry_keffa_imbalance': keffa_imbalance_at_open,
-                            'entry_b_ask': b_ask, 'entry_b_bid': b_bid,
-                            'entry_hl_ask': hl_ask, 'entry_hl_bid': hl_bid
+                            'signal': signal, 'entry_time': datetime.now(timezone.utc), 'entry_spread': current_spread,
+                            'initial_gap_usd': initial_gap_usd, 'entry_keffa_imbalance': keffa_imbalance_at_open,
+                            'entry_b_ask': b_ask, 'entry_b_bid': b_bid, 'entry_hl_ask': hl_ask, 'entry_hl_bid': hl_bid
                         }
-
-        # --- كتابة الصفقات المغلقة في الملف ---
         if closed_trades_to_log:
             with open(DATA_FILE, 'a', newline='', encoding='utf-8') as f:
                 writer = csv.writer(f)
                 writer.writerows(closed_trades_to_log)
-            print(f"--- 💾 Logged {len(closed_trades_to_log)} closed trades to {DATA_FILE} ---")
+            print(f"--- 💾 Logged {len(closed_trades_to_log)} closed trades ---")
         
-        # --- طباعة تقرير التشخيص كل 10 ثوانٍ ---
         if time.time() - last_diag_print > 10:
             ts = datetime.now().strftime('%H:%M:%S')
-            spread_info = ", ".join([f"{coin}: {spread:.4f}%" for coin, spread in diag_spreads.items()])
-            print(f"[{ts}] 🩺 Heartbeat: Processing {processed_symbols_count}/{len(SYMBOLS)} symbols. Active trades: {len(tracked_trades)}. | Spreads -> {spread_info}")
+            btc_binance_data = latest_data["binance_book"].get("btcusdt", "No Data")
+            btc_hl_data = latest_data["hyperliquid"].get("BTC", "No Data")
+            print(f"[{ts}] 🩺 Heartbeat: Processing {processed_symbols_count}/{len(SYMBOLS)} symbols. Active: {len(tracked_trades)}")
+            print(f"    Raw Data Check -> BTC Binance: {btc_binance_data} | BTC Hyperliquid: {btc_hl_data}")
             last_diag_print = time.time()
 
 # --- بدء عملية جمع البيانات ---
 if __name__ == "__main__":
-    print(f"--- Starting Corrected Trading Simulator ---")
-    print(f"Monitoring {len(SYMBOLS)} symbols. Trade Trigger Spread: {SPREAD_THRESHOLD}%.")
-    binance_ws_url = "wss://fstream.binance.com/stream"
-    hyperliquid_ws_url = "wss://api.hyperliquid.xyz/ws"
+    print(f"--- Starting Final Diagnostic Simulator ---")
     stop_logging_event = threading.Event()
     
-    threading.Thread(target=run_websocket, args=(binance_ws_url, on_message_binance, on_open_binance), daemon=True).start()
-    threading.Thread(target=run_websocket, args=(hyperliquid_ws_url, on_message_hyperliquid, on_open_hyperliquid), daemon=True).start()
+    # بدء اتصالات WebSocket في threads منفصلة
+    threading.Thread(target=run_websocket, args=("wss://fstream.binance.com/stream", on_message_binance, on_open_binance), daemon=True).start()
+    threading.Thread(target=run_websocket, args=("wss://api.hyperliquid.xyz/ws", on_message_hyperliquid, on_open_hyperliquid), daemon=True).start()
     
-    # انتظر قليلاً حتى يتم إنشاء الاتصالات وتدفق البيانات الأولية
-    print("Waiting 5 seconds for WebSocket connections to establish...")
+    print("Waiting 5 seconds for WebSockets to connect and subscribe...")
     time.sleep(5)
     
-    trade_simulator_thread = threading.Thread(target=trade_simulator)
-    trade_simulator_thread.start()
+    # بدء حلقة المحاكاة الرئيسية
+    threading.Thread(target=trade_simulator, daemon=True).start()
     
     COLLECTION_DURATION_MINUTES = 10
     print(f"\nSimulator will run for {COLLECTION_DURATION_MINUTES} minutes...")
     
-    trade_simulator_thread.join(timeout=COLLECTION_DURATION_MINUTES * 60)
+    # إبقاء الـ thread الرئيسي حيًا للمدة المحددة
+    time.sleep(COLLECTION_DURATION_MINUTES * 60)
     
     print("\n--- Stopping Simulation ---")
     stop_logging_event.set()
-    
-    # انتظر ثانية إضافية للتأكد من إغلاق أي صفقات متبقية وكتابتها
     time.sleep(1)
-    
     print(f"Simulation log saved to {DATA_FILE}")
