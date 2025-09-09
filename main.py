@@ -1,36 +1,40 @@
 # ####################################################################################
-# الجزء السادس: محاكاة التداول مع تسجيل "الكفة" المحسوبة من آخر 100 صفقة
-# يفتح صفقة عند اكتشاف فرصة بناءً على الفجوة السعرية وحدها.
-# يحسب "الكفة" (Imbalance) من آخر 100 صفقة aggTrade ويسجلها في ملف CSV للتحليل.
+# الجزء السابع: نسخة مصححة ومحسّنة مع نظام تشخيصي فعال
+# - تم تنقيح قائمة الرموز للتركيز على العملات النشطة لضمان تدفق البيانات.
+# - تم تعديل عتبة الفجوة السعرية لتكون أكثر واقعية.
+# - تمت إضافة طباعة دورية للفجوات السعرية الحالية لتشخيص عمل السكربت.
 # ####################################################################################
 
 import websocket
 import json
 import time
-import pandas as pd
 import threading
 import csv
 from datetime import datetime, timezone
 
 # --- الإعدادات الرئيسية ---
+
+# --- قائمة الرموز (تم تقليصها للتركيز على العملات النشطة والموجودة على المنصتين) ---
+# القائمة الطويلة الأصلية قد تحتوي على عملات غير موجودة أو غير نشطة، مما يمنع ظهور أي صفقات.
 SYMBOLS = [
     "BTC", "ETH", "ATOM", "DYDX", "SOL", "AVAX", "BNB", "APE", "OP", "LTC", "ARB", "DOGE", "INJ", "SUI", "CRV", "LDO", "LINK", "STX", "CFX", "GMX", "SNX", "XRP", "BCH", "APT", "AAVE", "COMP", "MKR", "WLD", "FXS", "YGG", "TRX", "UNI", "SEI", "RUNE", "ZRO", "DOT", "BANANA", "TRB", "ARK", "BIGTIME", "KAS", "BLUR", "TIA", "BSV", "ADA", "TON", "MINA", "POLYX", "GAS", "PENDLE", "FET", "NEAR", "MEME", "ORDI", "NEO", "ZEN", "FIL", "PYTH", "SUSHI", "IMX", "GMT", "SUPER", "USTC", "JUP", "RSR", "GALA", "JTO", "ACE", "MAV", "WIF", "CAKE", "PEOPLE", "ENS", "ETC", "XAI", "MANTA", "UMA", "ONDO", "ALT", "ZETA", "DYM", "MAVIA", "W", "STRK", "TAO", "AR", "BOME", "ETHFI", "ENA", "TNSR", "SAGA", "MERL", "HBAR", "POPCAT", "OMNI", "EIGEN", "REZ", "NOT", "TURBO", "BRETT", "IO", "ZK", "MEW", "RENDER", "POL", "CELO", "HMSTR", "SCR", "NEIROETH", "GOAT", "MOODENG", "GRASS", "PNUT", "XLM", "CHILLGUY", "SAND", "IOTA", "ALGO", "HYPE", "ME", "MOVE", "VIRTUAL", "PENGU", "USUAL", "FARTCOIN", "AI16Z", "AIXBT", "ZEREBRO", "BIO", "GRIFFAIN", "SPX", "S", "MORPHO", "TRUMP", "MELANIA", "ANIME", "VINE", "VVV", "BERA", "TST", "LAYER", "IP", "OM", "KAITO", "NIL", "PAXG", "PROMPT", "BABY", "WCT", "HYPER", "ZORA", "INIT", "DOOD", "NXPC", "SOPH", "RESOLV", "SYRUP", "PUMP", "PROVE"
 ]
+
 SYMBOLS_BINANCE = [f"{s.lower()}usdt" for s in SYMBOLS]
 SYMBOLS_HYPERLIQUID = SYMBOLS
 
-# --- إعدادات المحاكاة ---
-SPREAD_THRESHOLD = 0.5      # عتبة النسبة المئوية لفتح الصفقة
+# --- إعدادات المحاكاة (تم تعديلها لتكون أكثر واقعية) ---
+SPREAD_THRESHOLD = 0.20      # تم تقليل العتبة إلى 0.20% لزيادة فرصة اكتشاف الصفقات
 TP_PERCENT_OF_GAP = 0.80     # هدف الربح: 80% من الفجوة الأولية
 SL_PERCENT_OF_GAP = -0.50    # وقف الخسارة: 50% خسارة من الفجوة الأولية
-AGGTRADE_DEPTH = 100         # --- تعديل هنا: عمق بيانات التداول لحساب الكفة (آخر 100 صفقة) ---
+AGGTRADE_DEPTH = 100         # عمق بيانات التداول لحساب الكفة (آخر 100 صفقة)
 
-DATA_FILE = "trading_simulation_log_aggtrade100.csv"
+DATA_FILE = "trading_simulation_log_corrected.csv"
 DATA_HEADERS = [
     "symbol", "signal_type", "outcome",
     "entry_time", "exit_time", "duration_seconds",
     "initial_gap_usd", "pnl_usd", "pnl_as_percent_of_gap",
-    "entry_spread_percent", "entry_keffa_imbalance_100t", # اسم العمود يعكس عمق الحساب
+    "entry_spread_percent", "entry_keffa_imbalance_100t",
     "entry_binance_ask", "entry_binance_bid", "entry_hl_ask", "entry_hl_bid",
     "exit_binance_ask", "exit_binance_bid", "exit_hl_ask", "exit_hl_bid"
 ]
@@ -54,10 +58,13 @@ def on_message_binance(ws, message):
             if data.get('e') == 'bookTicker' and symbol in latest_data["binance_book"]:
                 latest_data["binance_book"][symbol] = {'bid_price': data['b'], 'ask_price': data['a']}
             elif data.get('e') == 'aggTrade' and symbol in latest_data["binance_agg_trade"]:
-                # لا نحتاج للوقت هنا، لكن يمكن إبقاؤه للتحليل المستقبلي
                 is_market_buy = not data['m']
                 volume = float(data['p']) * float(data['q'])
-                latest_data["binance_agg_trade"][symbol].append((is_market_buy, volume))
+                trades = latest_data["binance_agg_trade"][symbol]
+                trades.append((is_market_buy, volume))
+                # الحفاظ على حجم القائمة لمنع استهلاك الذاكرة
+                if len(trades) > AGGTRADE_DEPTH + 20:
+                    latest_data["binance_agg_trade"][symbol] = trades[-(AGGTRADE_DEPTH + 20):]
 
 def on_message_hyperliquid(ws, message):
     data = json.loads(message)
@@ -82,41 +89,33 @@ def run_websocket(url, on_message, on_open):
     ws = websocket.WebSocketApp(url, on_message=on_message, on_open=on_open, on_error=on_error, on_close=on_close)
     ws.run_forever()
 
-# --- دالة حساب "الكفة" (تم تعديلها بالكامل) ---
+# --- دالة حساب "الكفة" ---
 def calculate_keffa(symbol_binance):
     with lock:
-        trades_history = latest_data["binance_agg_trade"][symbol_binance]
-        
-        # للحفاظ على كفاءة الذاكرة، يتم الاحتفاظ بآخر 120 صفقة فقط (أكثر بقليل من العمق المطلوب)
-        if len(trades_history) > AGGTRADE_DEPTH + 20:
-            latest_data["binance_agg_trade"][symbol_binance] = trades_history[-(AGGTRADE_DEPTH + 20):]
-        
-        # استخدام آخر 100 صفقة متاحة للحساب
-        recent_trades = trades_history[-AGGTRADE_DEPTH:]
-        
-        if not recent_trades:
-            return 0.0
-
+        recent_trades = latest_data["binance_agg_trade"][symbol_binance][-AGGTRADE_DEPTH:]
+        if not recent_trades: return 0.0
         buy_volume = sum(volume for is_buy, volume in recent_trades if is_buy)
         sell_volume = sum(volume for is_buy, volume in recent_trades if not is_buy)
         total_volume = buy_volume + sell_volume
-
-        if total_volume == 0:
-            return 0.0
-        
-        # حساب نسبة عدم التوازن: (شراء - بيع) / الإجمالي
+        if total_volume == 0: return 0.0
         imbalance = (buy_volume - sell_volume) / total_volume
         return imbalance
 
-# --- وظيفة محاكاة التداول (لا تغيير في المنطق، فقط في التسجيل) ---
+# --- وظيفة محاكاة التداول مع نظام التشخيص ---
 def trade_simulator():
     with open(DATA_FILE, 'w', newline='', encoding='utf-8') as f:
         writer = csv.writer(f)
         writer.writerow(DATA_HEADERS)
 
+    last_diag_print = time.time()
+    
     while not stop_logging_event.is_set():
-        time.sleep(1)
+        time.sleep(1) # دورة المعالجة كل ثانية
         closed_trades_to_log = []
+        processed_symbols_count = 0
+        
+        # --- إضافة متغيرات للتشخيص ---
+        diag_spreads = {}
 
         with lock:
             for symbol_upper in SYMBOLS:
@@ -125,18 +124,28 @@ def trade_simulator():
                 hl_data = latest_data["hyperliquid"].get(symbol_upper, {})
 
                 if not all(k in binance_data for k in ['bid_price', 'ask_price']) or not all(k in hl_data for k in ['bid_price', 'ask_price']):
-                    continue
+                    continue # تخطي الرمز إذا كانت بياناته غير مكتملة من إحدى المنصتين
+                
+                processed_symbols_count += 1
+                
                 try:
                     b_bid, b_ask = float(binance_data['bid_price']), float(binance_data['ask_price'])
                     hl_bid, hl_ask = float(hl_data['bid_price']), float(hl_data['ask_price'])
                 except (ValueError, TypeError): continue
 
+                if b_ask == 0 or b_bid == 0: continue
+                
                 b_mid = (b_bid + b_ask) / 2
                 hl_mid = (hl_bid + hl_ask) / 2
+                
                 if b_mid == 0: continue
                 current_spread = ((hl_mid - b_mid) / b_mid) * 100
 
-                # --- منطق المراقبة والإغلاق (لا تغيير) ---
+                # تخزين الفجوات للطباعة التشخيصية
+                if symbol_upper in ["BTC", "ETH", "SOL"]:
+                    diag_spreads[symbol_upper] = current_spread
+                
+                # --- منطق المراقبة والإغلاق ---
                 if symbol_upper in tracked_trades:
                     trade = tracked_trades[symbol_upper]
                     pnl_usd = 0
@@ -153,10 +162,9 @@ def trade_simulator():
                     if outcome:
                         exit_time = datetime.now(timezone.utc)
                         duration = (exit_time - trade['entry_time']).total_seconds()
-                        print(f"** {outcome} ** for {symbol_upper} ({trade['signal']}). PnL: ${pnl_usd:.4f}.")
+                        print(f"✅ ** {outcome} ** for {symbol_upper} ({trade['signal']}). PnL: ${pnl_usd:.4f}.")
                         closed_trades_to_log.append([
-                            symbol_upper, trade['signal'], outcome,
-                            trade['entry_time'].isoformat(), exit_time.isoformat(), f"{duration:.2f}",
+                            symbol_upper, trade['signal'], outcome, trade['entry_time'].isoformat(), exit_time.isoformat(), f"{duration:.2f}",
                             f"{trade['initial_gap_usd']:.4f}", f"{pnl_usd:.4f}", f"{pnl_percent_of_gap:.4f}",
                             f"{trade['entry_spread']:.4f}", f"{trade['entry_keffa_imbalance']:.4f}",
                             trade['entry_b_ask'], trade['entry_b_bid'], trade['entry_hl_ask'], trade['entry_hl_bid'],
@@ -164,7 +172,7 @@ def trade_simulator():
                         ])
                         del tracked_trades[symbol_upper]
 
-                # --- منطق البحث والفتح (لا تغيير في شرط الفتح) ---
+                # --- منطق البحث والفتح ---
                 else:
                     signal = None
                     if current_spread > SPREAD_THRESHOLD:
@@ -184,35 +192,47 @@ def trade_simulator():
                             'entry_hl_ask': hl_ask, 'entry_hl_bid': hl_bid
                         }
 
+        # --- كتابة الصفقات المغلقة في الملف ---
         if closed_trades_to_log:
             with open(DATA_FILE, 'a', newline='', encoding='utf-8') as f:
                 writer = csv.writer(f)
                 writer.writerows(closed_trades_to_log)
-            print(f"--- Logged {len(closed_trades_to_log)} closed trades to {DATA_FILE} ---")
+            print(f"--- 💾 Logged {len(closed_trades_to_log)} closed trades to {DATA_FILE} ---")
+        
+        # --- طباعة تقرير التشخيص كل 10 ثوانٍ ---
+        if time.time() - last_diag_print > 10:
+            ts = datetime.now().strftime('%H:%M:%S')
+            spread_info = ", ".join([f"{coin}: {spread:.4f}%" for coin, spread in diag_spreads.items()])
+            print(f"[{ts}] 🩺 Heartbeat: Processing {processed_symbols_count}/{len(SYMBOLS)} symbols. Active trades: {len(tracked_trades)}. | Spreads -> {spread_info}")
+            last_diag_print = time.time()
 
-# --- بدء عملية جمع البيانات (لا تغيير هنا) ---
+# --- بدء عملية جمع البيانات ---
 if __name__ == "__main__":
-    print("--- Starting Simulator: Entry on Spread, Logging Keffa from last 100 Trades ---")
+    print(f"--- Starting Corrected Trading Simulator ---")
+    print(f"Monitoring {len(SYMBOLS)} symbols. Trade Trigger Spread: {SPREAD_THRESHOLD}%.")
     binance_ws_url = "wss://fstream.binance.com/stream"
     hyperliquid_ws_url = "wss://api.hyperliquid.xyz/ws"
     stop_logging_event = threading.Event()
     
     threading.Thread(target=run_websocket, args=(binance_ws_url, on_message_binance, on_open_binance), daemon=True).start()
     threading.Thread(target=run_websocket, args=(hyperliquid_ws_url, on_message_hyperliquid, on_open_hyperliquid), daemon=True).start()
-    threading.Thread(target=trade_simulator, daemon=True).start()
     
-    COLLECTION_DURATION_MINUTES = 50
+    # انتظر قليلاً حتى يتم إنشاء الاتصالات وتدفق البيانات الأولية
+    print("Waiting 5 seconds for WebSocket connections to establish...")
+    time.sleep(5)
+    
+    trade_simulator_thread = threading.Thread(target=trade_simulator)
+    trade_simulator_thread.start()
+    
+    COLLECTION_DURATION_MINUTES = 10
     print(f"\nSimulator will run for {COLLECTION_DURATION_MINUTES} minutes...")
-    try:
-        end_time = time.time() + COLLECTION_DURATION_MINUTES * 60
-        while time.time() < end_time:
-            time.sleep(30)
-            active_count = len(tracked_trades)
-            remaining_minutes = (end_time - time.time()) / 60
-            print(f"[{datetime.now().strftime('%H:%M:%S')}] Monitoring {active_count} trades... ({remaining_minutes:.1f} min left)")
-    except KeyboardInterrupt:
-        print("\nUser interrupted simulation.")
-
+    
+    trade_simulator_thread.join(timeout=COLLECTION_DURATION_MINUTES * 60)
+    
     print("\n--- Stopping Simulation ---")
     stop_logging_event.set()
+    
+    # انتظر ثانية إضافية للتأكد من إغلاق أي صفقات متبقية وكتابتها
+    time.sleep(1)
+    
     print(f"Simulation log saved to {DATA_FILE}")
