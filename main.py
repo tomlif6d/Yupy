@@ -1,7 +1,7 @@
 # ####################################################################################
-# الجزء الخامس: محاكاة التداول بقرار يعتمد على الفجوة السعرية فقط، مع تسجيل "الكفة" للتحليل
+# الجزء السادس: محاكاة التداول مع تسجيل "الكفة" المحسوبة من آخر 100 صفقة
 # يفتح صفقة عند اكتشاف فرصة بناءً على الفجوة السعرية وحدها.
-# يحسب "الكفة" (Imbalance) ويسجلها في ملف CSV عند فتح الصفقة لتحليلها لاحقاً.
+# يحسب "الكفة" (Imbalance) من آخر 100 صفقة aggTrade ويسجلها في ملف CSV للتحليل.
 # ####################################################################################
 
 import websocket
@@ -10,7 +10,7 @@ import time
 import pandas as pd
 import threading
 import csv
-from datetime import datetime, timezone, timedelta
+from datetime import datetime, timezone
 
 # --- الإعدادات الرئيسية ---
 SYMBOLS = [
@@ -23,14 +23,14 @@ SYMBOLS_HYPERLIQUID = SYMBOLS
 SPREAD_THRESHOLD = 0.5      # عتبة النسبة المئوية لفتح الصفقة
 TP_PERCENT_OF_GAP = 0.80     # هدف الربح: 80% من الفجوة الأولية
 SL_PERCENT_OF_GAP = -0.50    # وقف الخسارة: 50% خسارة من الفجوة الأولية
-KEFFA_WINDOW_SECONDS = 30    # النافذة الزمنية (بالثواني) لحساب "الكفة"
+AGGTRADE_DEPTH = 100         # --- تعديل هنا: عمق بيانات التداول لحساب الكفة (آخر 100 صفقة) ---
 
-DATA_FILE = "trading_simulation_log_spread_only.csv"
+DATA_FILE = "trading_simulation_log_aggtrade100.csv"
 DATA_HEADERS = [
     "symbol", "signal_type", "outcome",
     "entry_time", "exit_time", "duration_seconds",
     "initial_gap_usd", "pnl_usd", "pnl_as_percent_of_gap",
-    "entry_spread_percent", "entry_keffa_imbalance_at_open", # <-- سيتم تسجيل الكفة هنا
+    "entry_spread_percent", "entry_keffa_imbalance_100t", # اسم العمود يعكس عمق الحساب
     "entry_binance_ask", "entry_binance_bid", "entry_hl_ask", "entry_hl_bid",
     "exit_binance_ask", "exit_binance_bid", "exit_hl_ask", "exit_hl_bid"
 ]
@@ -54,10 +54,10 @@ def on_message_binance(ws, message):
             if data.get('e') == 'bookTicker' and symbol in latest_data["binance_book"]:
                 latest_data["binance_book"][symbol] = {'bid_price': data['b'], 'ask_price': data['a']}
             elif data.get('e') == 'aggTrade' and symbol in latest_data["binance_agg_trade"]:
-                trade_time = datetime.fromtimestamp(data['T'] / 1000, tz=timezone.utc)
+                # لا نحتاج للوقت هنا، لكن يمكن إبقاؤه للتحليل المستقبلي
                 is_market_buy = not data['m']
                 volume = float(data['p']) * float(data['q'])
-                latest_data["binance_agg_trade"][symbol].append((trade_time, is_market_buy, volume))
+                latest_data["binance_agg_trade"][symbol].append((is_market_buy, volume))
 
 def on_message_hyperliquid(ws, message):
     data = json.loads(message)
@@ -82,22 +82,33 @@ def run_websocket(url, on_message, on_open):
     ws = websocket.WebSocketApp(url, on_message=on_message, on_open=on_open, on_error=on_error, on_close=on_close)
     ws.run_forever()
 
-# --- دالة حساب "الكفة" (لا تغيير هنا) ---
+# --- دالة حساب "الكفة" (تم تعديلها بالكامل) ---
 def calculate_keffa(symbol_binance):
     with lock:
-        now = datetime.now(timezone.utc)
-        time_window = now - timedelta(seconds=KEFFA_WINDOW_SECONDS)
-        trades = [t for t in latest_data["binance_agg_trade"][symbol_binance] if t[0] >= time_window]
-        latest_data["binance_agg_trade"][symbol_binance] = trades
-        if not trades: return 0.0
-        buy_volume = sum(volume for _, is_buy, volume in trades if is_buy)
-        sell_volume = sum(volume for _, is_buy, volume in trades if not is_buy)
+        trades_history = latest_data["binance_agg_trade"][symbol_binance]
+        
+        # للحفاظ على كفاءة الذاكرة، يتم الاحتفاظ بآخر 120 صفقة فقط (أكثر بقليل من العمق المطلوب)
+        if len(trades_history) > AGGTRADE_DEPTH + 20:
+            latest_data["binance_agg_trade"][symbol_binance] = trades_history[-(AGGTRADE_DEPTH + 20):]
+        
+        # استخدام آخر 100 صفقة متاحة للحساب
+        recent_trades = trades_history[-AGGTRADE_DEPTH:]
+        
+        if not recent_trades:
+            return 0.0
+
+        buy_volume = sum(volume for is_buy, volume in recent_trades if is_buy)
+        sell_volume = sum(volume for is_buy, volume in recent_trades if not is_buy)
         total_volume = buy_volume + sell_volume
-        if total_volume == 0: return 0.0
+
+        if total_volume == 0:
+            return 0.0
+        
+        # حساب نسبة عدم التوازن: (شراء - بيع) / الإجمالي
         imbalance = (buy_volume - sell_volume) / total_volume
         return imbalance
 
-# --- وظيفة محاكاة التداول (مع التعديل المطلوب) ---
+# --- وظيفة محاكاة التداول (لا تغيير في المنطق، فقط في التسجيل) ---
 def trade_simulator():
     with open(DATA_FILE, 'w', newline='', encoding='utf-8') as f:
         writer = csv.writer(f)
@@ -153,26 +164,22 @@ def trade_simulator():
                         ])
                         del tracked_trades[symbol_upper]
 
-                # --- منطق البحث والفتح (تم تعديله هنا) ---
+                # --- منطق البحث والفتح (لا تغيير في شرط الفتح) ---
                 else:
                     signal = None
-                    # --- تعديل هنا: العودة إلى منطق الفجوة السعرية فقط لفتح الصفقة ---
                     if current_spread > SPREAD_THRESHOLD:
-                        signal = 'LONG_BINANCE'  # شراء Binance / بيع Hyperliquid
+                        signal = 'LONG_BINANCE'
                     elif current_spread < -SPREAD_THRESHOLD:
-                        signal = 'SHORT_BINANCE' # بيع Binance / شراء Hyperliquid
+                        signal = 'SHORT_BINANCE'
 
                     if signal:
-                        # نحسب الكفة فقط في لحظة فتح الصفقة لغرض التسجيل
                         keffa_imbalance_at_open = calculate_keffa(symbol_binance)
                         initial_gap_usd = abs(hl_mid - b_mid)
-                        
-                        print(f"🔥 TRADE OPENED: {symbol_upper} ({signal}). Spread: {current_spread:.3f}%. (Keffa for logging: {keffa_imbalance_at_open:.2f})")
-                        
+                        print(f"🔥 TRADE OPENED: {symbol_upper} ({signal}). Spread: {current_spread:.3f}%. (Keffa 100-trade: {keffa_imbalance_at_open:.2f})")
                         tracked_trades[symbol_upper] = {
                             'signal': signal, 'entry_time': datetime.now(timezone.utc),
                             'entry_spread': current_spread, 'initial_gap_usd': initial_gap_usd,
-                            'entry_keffa_imbalance': keffa_imbalance_at_open, # <-- تخزين الكفة للتسجيل
+                            'entry_keffa_imbalance': keffa_imbalance_at_open,
                             'entry_b_ask': b_ask, 'entry_b_bid': b_bid,
                             'entry_hl_ask': hl_ask, 'entry_hl_bid': hl_bid
                         }
@@ -185,7 +192,7 @@ def trade_simulator():
 
 # --- بدء عملية جمع البيانات (لا تغيير هنا) ---
 if __name__ == "__main__":
-    print("--- Starting Simulator: Spread-Based Entry with Keffa Logging ---")
+    print("--- Starting Simulator: Entry on Spread, Logging Keffa from last 100 Trades ---")
     binance_ws_url = "wss://fstream.binance.com/stream"
     hyperliquid_ws_url = "wss://api.hyperliquid.xyz/ws"
     stop_logging_event = threading.Event()
