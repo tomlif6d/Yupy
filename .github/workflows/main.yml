@@ -31,7 +31,7 @@ jobs:
 
     # الخطوة 4: تشغيل سكربت المحاكاة
     - name: Run Python script
-      run: python run_simulation.py
+      run: python main.py
 
     # الخطوة 5: تحميل ملف السجل الناتج كـ Artifact
     - name: Upload simulation log
