@@ -7,6 +7,7 @@ import pandas as pd
 import threading
 import csv
 from datetime import datetime, timezone
+from collections import deque # <-- استيراد deque لتخزين الصفقات بكفاءة
 
 # --- الإعدادات الرئيسية ---
 
@@ -22,8 +23,10 @@ SL_PERCENT_OF_GAP = -0.50    # وقف الخسارة: 50% خسارة من الف
 
 DATA_FILE = "trading_simulation_log_tp_sl.csv"
 
+# --- تعديل هنا: إضافة عمود اتجاه السوق ---
 DATA_HEADERS = [
     "symbol", "signal_type", "outcome",
+    "market_direction_at_entry", # <-- العمود الجديد
     "entry_time", "exit_time", "duration_seconds",
     "initial_gap_usd", "pnl_usd", "pnl_as_percent_of_gap",
     "entry_spread_percent",
@@ -36,15 +39,23 @@ latest_data = {
     "binance": {symbol: {} for symbol in SYMBOLS_BINANCE},
     "hyperliquid": {symbol: {} for symbol in SYMBOLS_HYPERLIQUID}
 }
-tracked_trades = {} # لتخزين الصفقات المفتوحة
+# --- جديد: متغير لتخزين آخر 100 صفقة لكل عملة ---
+agg_trades_data = {symbol: deque(maxlen=100) for symbol in SYMBOLS_BINANCE}
+tracked_trades = {}
 lock = threading.Lock()
 stop_logging_event = threading.Event()
 
-# --- دوال WebSocket (مع تعديل بسيط لجمع كل بيانات bookTicker) ---
+# --- دوال WebSocket (مع تعديلات لـ aggTrade) ---
 def on_message_binance(ws, message):
     payload = json.loads(message)
-    if 'stream' in payload and 'data' in payload and payload['data'].get('e') == 'bookTicker':
-        data = payload['data']
+    if 'stream' not in payload or 'data' not in payload:
+        return
+        
+    stream_name = payload['stream']
+    data = payload['data']
+    
+    # معالجة بيانات دفتر الطلبات (bookTicker)
+    if '@bookTicker' in stream_name:
         symbol = data['s'].lower()
         if symbol in latest_data["binance"]:
             with lock:
@@ -52,6 +63,17 @@ def on_message_binance(ws, message):
                     'bid_price': data['b'], 'bid_qty': data['B'],
                     'ask_price': data['a'], 'ask_qty': data['A']
                 }
+
+    # --- جديد: معالجة بيانات الصفقات المجمعة (aggTrade) ---
+    elif '@aggTrade' in stream_name:
+        symbol = data['s'].lower()
+        if symbol in agg_trades_data:
+            with lock:
+                # 'm': isBuyerMaker. False = aggressive buy, True = aggressive sell
+                agg_trades_data[symbol].append({
+                    'q': float(data['q']), # Quantity
+                    'm': data['m']         # isBuyerMaker
+                })
 
 def on_message_hyperliquid(ws, message):
     data = json.loads(message)
@@ -65,21 +87,56 @@ def on_message_hyperliquid(ws, message):
                     'ask_price': levels[1][0]['px'], 'ask_qty': levels[1][0]['sz']
                 }
 
-# --- دوال WebSocket المساعدة (بدون تغيير) ---
+# --- دوال WebSocket المساعدة ---
 def on_error(ws, error): print(f"### WebSocket Error: {error} ###")
 def on_close(ws, close_status_code, close_msg): print(f"### WebSocket Closed: {close_msg} ###")
+
+# --- تعديل هنا: إضافة اشتراكات aggTrade ---
 def on_open_binance(ws):
     print(">>> Binance WebSocket Opened <<<")
-    ws.send(json.dumps({"method": "SUBSCRIBE", "params": [f"{s}@bookTicker" for s in SYMBOLS_BINANCE], "id": 1}))
+    subscriptions = [f"{s}@bookTicker" for s in SYMBOLS_BINANCE]
+    subscriptions.extend([f"{s}@aggTrade" for s in SYMBOLS_BINANCE]) # <-- إضافة اشتراكات aggTrade
+    ws.send(json.dumps({"method": "SUBSCRIBE", "params": subscriptions, "id": 1}))
+
 def on_open_hyperliquid(ws):
     print(">>> Hyperliquid WebSocket Opened <<<")
     for symbol in SYMBOLS_HYPERLIQUID:
         ws.send(json.dumps({"method": "subscribe", "subscription": {"type": "l2Book", "coin": symbol}}))
+
 def run_websocket(url, on_message, on_open):
     ws = websocket.WebSocketApp(url, on_message=on_message, on_open=on_open, on_error=on_error, on_close=on_close)
     ws.run_forever()
 
-# --- وظيفة محاكاة التداول (مُعدَّلة بالكامل) ---
+# --- جديد: دالة لتحليل ضغط السوق من آخر 100 صفقة ---
+def get_market_direction(symbol_binance):
+    """
+    Analyzes the last 100 trades to determine market pressure.
+    Returns 'BUY_PRESSURE', 'SELL_PRESSURE', or 'NEUTRAL'.
+    """
+    with lock:
+        trades = agg_trades_data.get(symbol_binance, [])
+        if not trades:
+            return "NEUTRAL"
+            
+        buy_volume = 0
+        sell_volume = 0
+
+        for trade in trades:
+            # If isBuyerMaker is False, it was an aggressive market buy (taker was buyer).
+            if not trade['m']:
+                buy_volume += trade['q']
+            # If isBuyerMaker is True, it was an aggressive market sell (taker was seller).
+            else:
+                sell_volume += trade['q']
+                
+    if buy_volume > sell_volume:
+        return "BUY_PRESSURE"
+    elif sell_volume > buy_volume:
+        return "SELL_PRESSURE"
+    else:
+        return "NEUTRAL"
+
+# --- وظيفة محاكاة التداول (مع تعديلات للتكامل) ---
 def trade_simulator():
     with open(DATA_FILE, 'w', newline='', encoding='utf-8') as f:
         writer = csv.writer(f)
@@ -90,11 +147,11 @@ def trade_simulator():
         closed_trades_to_log = []
 
         with lock:
-            current_tracked_trades = list(tracked_trades.keys()) # نسخة لتجنب التعديل أثناء التكرار
+            # --- منطق المراقبة والإغلاق (بدون تغيير جوهري) ---
+            current_tracked_trades = list(tracked_trades.keys())
             for symbol_upper in current_tracked_trades:
-                # ... منطق المراقبة والإغلاق (من الكود الأصلي)
                 trade = tracked_trades.get(symbol_upper)
-                if not trade: continue # تمت إزالته في دورة أخرى
+                if not trade: continue
                 
                 symbol_binance = f"{symbol_upper.lower()}usdt"
                 binance_data = latest_data["binance"].get(symbol_binance, {})
@@ -124,10 +181,12 @@ def trade_simulator():
                 if outcome:
                     exit_time = datetime.now(timezone.utc)
                     duration = (exit_time - trade['entry_time']).total_seconds()
-                    print(f"** {outcome} ** for {symbol_upper} ({trade['signal']}). PnL: ${pnl_usd:.4f} ({pnl_percent_of_gap:.1%}). Duration: {duration:.1f}s")
+                    print(f"** {outcome} ** for {symbol_upper} ({trade['signal']}). PnL: ${pnl_usd:.4f}. Dir: {trade['market_direction']}")
 
+                    # --- تعديل هنا: إضافة اتجاه السوق إلى السجل ---
                     closed_trades_to_log.append([
                         symbol_upper, trade['signal'], outcome,
+                        trade['market_direction'], # <-- إضافة البيانات الجديدة
                         trade['entry_time'].isoformat(), exit_time.isoformat(), f"{duration:.2f}",
                         f"{trade['initial_gap_usd']:.4f}", f"{pnl_usd:.4f}", f"{pnl_percent_of_gap:.4f}",
                         f"{trade['entry_spread']:.4f}",
@@ -136,9 +195,9 @@ def trade_simulator():
                     ])
                     del tracked_trades[symbol_upper]
             
-            # --- منطق البحث والفتح ---
+            # --- منطق البحث والفتح (مع تعديلات للتكامل) ---
             for symbol_upper in SYMBOLS:
-                if symbol_upper in tracked_trades: continue # تخطي الرموز التي لديها صفقة مفتوحة بالفعل
+                if symbol_upper in tracked_trades: continue
                 
                 symbol_binance = f"{symbol_upper.lower()}usdt"
                 binance_data = latest_data["binance"].get(symbol_binance, {})
@@ -158,14 +217,20 @@ def trade_simulator():
                 current_spread = ((hl_bid + hl_ask) / 2 - b_mid) / b_mid * 100
 
                 signal = None
-                if current_spread > SPREAD_THRESHOLD: signal = 'SHORT_BINANCE' # Sell Binance, Buy Hyperliquid
-                elif current_spread < -SPREAD_THRESHOLD: signal = 'LONG_BINANCE' # Buy Binance, Sell Hyperliquid
+                if current_spread > SPREAD_THRESHOLD: signal = 'SHORT_BINANCE'
+                elif current_spread < -SPREAD_THRESHOLD: signal = 'LONG_BINANCE'
 
                 if signal:
+                    # --- تعديل هنا: احصل على اتجاه السوق قبل فتح الصفقة ---
+                    market_direction = get_market_direction(symbol_binance)
+
                     initial_gap_usd = abs(((hl_bid + hl_ask) / 2) - b_mid)
-                    print(f"🔥 TRADE OPENED: {symbol_upper} ({signal}). Spread: {current_spread:.3f}%, Gap: ${initial_gap_usd:.4f}. Monitoring for TP/SL...")
+                    print(f"🔥 TRADE OPENED: {symbol_upper} ({signal}). Spread: {current_spread:.3f}%. Market: {market_direction}")
+                    
+                    # --- تعديل هنا: تخزين اتجاه السوق مع بيانات الصفقة ---
                     tracked_trades[symbol_upper] = {
                         'signal': signal,
+                        'market_direction': market_direction, # <-- تخزين البيانات الجديدة
                         'entry_time': datetime.now(timezone.utc),
                         'entry_spread': current_spread,
                         'initial_gap_usd': initial_gap_usd,
@@ -179,9 +244,8 @@ def trade_simulator():
                 writer.writerows(closed_trades_to_log)
             print(f"--- Logged {len(closed_trades_to_log)} closed trades to {DATA_FILE} ---")
 
-
 def main():
-    print("--- Starting Trading Simulator with TP/SL Logic ---")
+    print("--- Starting Trading Simulator with TP/SL & Market Direction Logic ---")
     binance_ws_url = "wss://fstream.binance.com/stream"
     hyperliquid_ws_url = "wss://api.hyperliquid.xyz/ws"
     
@@ -189,8 +253,7 @@ def main():
     threading.Thread(target=run_websocket, args=(hyperliquid_ws_url, on_message_hyperliquid, on_open_hyperliquid), daemon=True).start()
     threading.Thread(target=trade_simulator, daemon=True).start()
 
-    # --- مدة التشغيل (مهمة لـ GitHub Actions) ---
-    COLLECTION_DURATION_MINUTES = 10 # مدة مناسبة للتشغيل التلقائي
+    COLLECTION_DURATION_MINUTES = 10
     print(f"\nSimulator will run for {COLLECTION_DURATION_MINUTES} minutes...")
     
     end_time = time.time() + COLLECTION_DURATION_MINUTES * 60
@@ -202,7 +265,7 @@ def main():
 
     print("\n--- Stopping Simulation ---")
     stop_logging_event.set()
-    time.sleep(2) # إعطاء فرصة لكتابة آخر البيانات
+    time.sleep(2)
     print(f"Simulation log saved to {DATA_FILE}")
 
 if __name__ == "__main__":
