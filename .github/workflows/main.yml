@@ -1,33 +1,41 @@
+# .github/workflows/run_simulation.yml
+
 name: Run Trading Simulation
 
+# المشغلات: يعمل عند الدفع إلى الفرع الرئيسي أو عند التشغيل اليدوي
 on:
   push:
-    branches: [ "main" ]
+    branches: [ main ]
   workflow_dispatch:
 
 jobs:
   run-simulation:
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-latest # استخدم أحدث إصدار من Ubuntu
+    
     steps:
-      - name: Checkout repository
-        uses: actions/checkout@v4
+    # الخطوة 1: جلب الكود من المستودع
+    - name: Checkout repository
+      uses: actions/checkout@v4
 
-      - name: Set up Python
-        uses: actions/setup-python@v5
-        with:
-          python-version: '3.10'
+    # الخطوة 2: إعداد بيئة Python
+    - name: Set up Python
+      uses: actions/setup-python@v5
+      with:
+        python-version: '3.10' # يمكنك اختيار إصدار بايثون
 
-      - name: Install dependencies
-        run: |
-          python -m pip install --upgrade pip
-          pip install -r requirements.txt
+    # الخطوة 3: تثبيت المكتبات المطلوبة
+    - name: Install dependencies
+      run: |
+        python -m pip install --upgrade pip
+        pip install -r requirements.txt
 
-      - name: Run Python script
-        run: python main.py
+    # الخطوة 4: تشغيل سكربت المحاكاة
+    - name: Run Python script
+      run: python run_simulation.py
 
-      # تعديل بسيط لاسم الـ artifact ليكون أوضح
-      - name: Upload simulation log
-        uses: actions/upload-artifact@v4
-        with:
-          name: spread-only-simulation-log # اسم الـ artifact
-          path: trading_simulation_log_spread_only.csv # مسار الملف الصحيح
+    # الخطوة 5: تحميل ملف السجل الناتج كـ Artifact
+    - name: Upload simulation log
+      uses: actions/upload-artifact@v4
+      with:
+        name: simulation-log-tp-sl # اسم الـ Artifact الذي سيظهر في GitHub
+        path: trading_simulation_log_tp_sl.csv # مسار الملف الذي سيتم تحميله
