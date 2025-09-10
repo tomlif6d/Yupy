@@ -31,11 +31,12 @@ jobs:
 
     # الخطوة 4: تشغيل سكربت المحاكاة
     - name: Run Python script
-      run: python main.py
+      run: python -u main.py
 
     # الخطوة 5: تحميل ملف السجل الناتج كـ Artifact
     - name: Upload simulation log
       uses: actions/upload-artifact@v4
       with:
-        name: simulation-log-tp-sl # اسم الـ Artifact الذي سيظهر في GitHub
-        path: trading_simulation_log_tp_sl.csv # مسار الملف الذي سيتم تحميله
+        name: trading-simulation-log
+          # مسار الملف الذي تريد رفعه
+          path: trading_simulation_binance_only.csv
