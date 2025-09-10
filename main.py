@@ -24,7 +24,7 @@ SPREAD_THRESHOLD = 0.5
 TP_PERCENT_OF_GAP = 0.80
 SL_PERCENT_OF_GAP = -0.50
 AGG_TRADE_DEPTH = 100
-COLLECTION_DURATION_MINUTES = 5 # مدة تشغيل أقصر مناسبة لـ GitHub Actions
+COLLECTION_DURATION_MINUTES = 50 # مدة تشغيل أقصر مناسبة لـ GitHub Actions
 
 DATA_FILE = "trading_simulation_binance_only.csv"
 DATA_HEADERS = [
