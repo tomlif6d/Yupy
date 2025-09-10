@@ -1,42 +1,47 @@
-# .github/workflows/run_simulation.yml
+# اسم الـ Workflow الذي سيظهر في تبويب Actions على GitHub
+name: Run Trading Simulator
 
-name: Run Trading Simulation
-
-# المشغلات: يعمل عند الدفع إلى الفرع الرئيسي أو عند التشغيل اليدوي
+# متى يتم تشغيل هذا الـ Workflow
 on:
+  # عند كل عملية push إلى الفرع main
   push:
     branches: [ main ]
+  # يسمح لك بتشغيله يدويًا من واجهة GitHub
   workflow_dispatch:
 
+# الوظائف (Jobs) التي سيتم تنفيذها
 jobs:
   run-simulation:
-    runs-on: ubuntu-latest # استخدم أحدث إصدار من Ubuntu
-    
+    # نوع النظام الذي سيتم تشغيل الكود عليه
+    runs-on: ubuntu-latest
+
+    # الخطوات التي ستنفذ بالترتيب
     steps:
-    # الخطوة 1: جلب الكود من المستودع
-    - name: Checkout repository
-      uses: actions/checkout@v4
+      # 1. جلب الكود من المستودع إلى بيئة التشغيل
+      - name: Checkout repository
+        uses: actions/checkout@v4
 
-    # الخطوة 2: إعداد بيئة Python
-    - name: Set up Python
-      uses: actions/setup-python@v5
-      with:
-        python-version: '3.10' # يمكنك اختيار إصدار بايثون
+      # 2. إعداد بيئة Python بالإصدار المحدد
+      - name: Set up Python 3.10
+        uses: actions/setup-python@v5
+        with:
+          python-version: '3.10'
 
-    # الخطوة 3: تثبيت المكتبات المطلوبة
-    - name: Install dependencies
-      run: |
-        python -m pip install --upgrade pip
-        pip install -r requirements.txt
+      # 3. تثبيت المكتبات المطلوبة من ملف requirements.txt (أو مباشرة)
+      - name: Install dependencies
+        run: |
+          python -m pip install --upgrade pip
+          pip install websocket-client pandas
 
-    # الخطوة 4: تشغيل سكربت المحاكاة
-    - name: Run Python script
-      run: python -u main.py
+      # 4. تشغيل سكربت المحاكاة (تأكد من أن اسم الملف هو main.py)
+      - name: Run Python script
+        run: python -u main.py
 
-    # الخطوة 5: تحميل ملف السجل الناتج كـ Artifact
-    - name: Upload simulation log
-      uses: actions/upload-artifact@v4
-      with:
-        name: trading-simulation-log
+      # 5. رفع ملف النتائج كـ "Artifact" لكي تتمكن من تنزيله
+      - name: Upload trading log artifact
+        uses: actions/upload-artifact@v4
+        with:
+          # اسم المجلد الذي سيحتوي على الملف بعد فك الضغط
+          name: trading-simulation-log
           # مسار الملف الذي تريد رفعه
           path: trading_simulation_binance_only.csv
