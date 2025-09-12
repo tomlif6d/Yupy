@@ -32,7 +32,7 @@ SL_PERCENT_OF_GAP = -0.50    # وقف الخسارة: 50% خسارة من الف
 AGG_TRADE_DEPTH = 100      # عمق تحليل صفقات Binance
 
 # مدة تشغيل السكربت بالدقائق (يأخذ القيمة من متغير بيئة إذا وجد، وإلا يستخدم القيمة الافتراضية)
-DEFAULT_DURATION = 50
+DEFAULT_DURATION = 150
 try:
     COLLECTION_DURATION_MINUTES = int(os.environ.get('SIM_DURATION', DEFAULT_DURATION))
 except (ValueError, TypeError):
