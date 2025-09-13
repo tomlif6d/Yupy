@@ -26,7 +26,7 @@ SYMBOLS = ["BTC", "ETH", "ATOM", "DYDX", "SOL", "AVAX", "BNB", "APE", "OP", "LTC
 SYMBOLS_BINANCE = [f"{s.lower()}usdt" for s in SYMBOLS]
 SYMBOLS_HYPERLIQUID = SYMBOLS
 
-SPREAD_THRESHOLD = 0.5      # عتبة الفجوة المئوية لفتح الصفقة
+SPREAD_THRESHOLD = 0.4      # عتبة الفجوة المئوية لفتح الصفقة
 TP_PERCENT_OF_GAP = 0.80     # هدف الربح: 80% من الفجوة الأولية
 SL_PERCENT_OF_GAP = -0.50    # وقف الخسارة: 50% خسارة من الفجوة الأولية
 AGG_TRADE_DEPTH = 100      # عمق تحليل صفقات Binance
