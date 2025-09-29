@@ -1,5 +1,5 @@
 # ####################################################################################
-# السكربت النهائي: محاكي تداول عالي الأداء وموثوق (نسخة بدون Pandas)
+# السكربت النهائي: محاكي تداول عالي الأداء وموثوق (نسخة مصححة لواجهة Hyperliquid)
 # ------------------------------------------------------------------------------------
 # الميزات:
 # 1. بنية Event-Driven: اكتشاف الفرص فورًا عند تحديث الأسعار (أقصى سرعة).
@@ -128,7 +128,7 @@ def calculate_macd_list(prices, fast=12, slow=26, signal=9):
 def get_technical_indicators(platform, symbol):
     try:
         if platform == 'binance':
-            url = f"https://fapi.binance.com/fapi/v1/klines?symbol={symbol.upper()}&interval={CANDLE_INTERVAL}&limit={CANDLE_COUNT + 50}" # More data for stability
+            url = f"https://fapi.binance.com/fapi/v1/klines?symbol={symbol.upper()}&interval={CANDLE_INTERVAL}&limit={CANDLE_COUNT + 50}"
             response = requests.get(url, timeout=5)
             response.raise_for_status()
             data = response.json()
@@ -136,8 +136,15 @@ def get_technical_indicators(platform, symbol):
         
         elif platform == 'hyperliquid':
             url = "https://api.hyperliquid.xyz/info"
-            payload = {"type": "candleSnapshot", "coin": symbol.upper(), "interval": "1m", "startTime": int((time.time() - (CANDLE_COUNT + 50) * 60) * 1000), "endTime": int(time.time() * 1000)}
-            response = requests.req(url, json=payload, timeout=5)
+            payload = {
+                "type": "candles",
+                "coin": symbol.upper(),
+                "interval": "1m",
+                "startTime": int((time.time() - (CANDLE_COUNT + 50) * 60) * 1000),
+                "endTime": int(time.time() * 1000)
+            }
+            headers = {"Content-Type": "application/json"}
+            response = requests.post(url, json=payload, headers=headers, timeout=5)
             response.raise_for_status()
             data = response.json()
             close_prices = [float(candle['c']) for candle in data]
@@ -145,7 +152,6 @@ def get_technical_indicators(platform, symbol):
 
         if not close_prices or len(close_prices) < 50: return {}
         
-        # --- Manual Indicator Calculation ---
         rsi = calculate_rsi_list(close_prices, period=14)
         macd, macds, macdh = calculate_macd_list(close_prices, fast=12, slow=26, signal=9)
         ema = calculate_ema_list(close_prices, period=20)
@@ -319,7 +325,7 @@ def log_writer():
 
 # --- الدالة الرئيسية (لا تغيير هنا) ---
 if __name__ == "__main__":
-    print("--- Starting Simulator (Pure Python TI Version) ---")
+    print("--- Starting Simulator (Pure Python TI Version with Hyperliquid API fix) ---")
     threads = [
         threading.Thread(target=run_websocket_resilient, args=("Binance", "wss://fstream.binance.com/stream", on_message_binance, on_open_binance), daemon=True),
         threading.Thread(target=run_websocket_resilient, args=("Hyperliquid", "wss://api.hyperliquid.xyz/ws", on_message_hyperliquid, on_open_hyperliquid), daemon=True),
