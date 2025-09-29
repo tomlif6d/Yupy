@@ -136,7 +136,7 @@ def get_technical_indicators(platform, symbol):
         
         elif platform == 'hyperliquid':
             url = "https://api.hyperliquid.xyz/info"
-            payload = {"type": "candles", "coin": symbol.upper(), "interval": "1m", "startTime": int((time.time() - (CANDLE_COUNT + 50) * 60) * 1000), "endTime": int(time.time() * 1000)}
+            payload = {"type": "candleSnapshot", "coin": symbol.upper(), "interval": "1m", "startTime": int((time.time() - (CANDLE_COUNT + 50) * 60) * 1000), "endTime": int(time.time() * 1000)}
             response = requests.post(url, json=payload, timeout=5)
             response.raise_for_status()
             data = response.json()
