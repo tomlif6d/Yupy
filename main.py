@@ -1,5 +1,5 @@
 # ####################################################################################
-# السكربت النهائي: محاكي تداول عالي الأداء وموثوق (نسخة مصححة لواجهة Hyperliquid)
+# السكربت النهائي: محاكي تداول عالي الأداء وموثوق (نسخة بتصحيح Hyperliquid API)
 # ------------------------------------------------------------------------------------
 # الميزات:
 # 1. بنية Event-Driven: اكتشاف الفرص فورًا عند تحديث الأسعار (أقصى سرعة).
@@ -66,10 +66,8 @@ def calculate_ema_list(prices, period):
     if len(prices) < period: return []
     multiplier = 2 / (period + 1)
     ema = []
-    # Initial SMA
     initial_sma = sum(prices[:period]) / period
     ema.append(initial_sma)
-    # Subsequent EMAs
     for price in prices[period:]:
         new_ema = (price * multiplier) + (ema[-1] * (1 - multiplier))
         ema.append(new_ema)
@@ -99,7 +97,6 @@ def calculate_rsi_list(prices, period=14):
             rsi = 100 - (100 / (1 + rs))
         rsi_values.append(rsi)
         
-        # Wilder's Smoothing for next iteration
         avg_gain = ((avg_gain * (period - 1)) + gains[i]) / period
         avg_loss = ((avg_loss * (period - 1)) + losses[i]) / period
         
@@ -110,7 +107,6 @@ def calculate_macd_list(prices, fast=12, slow=26, signal=9):
     ema_fast = calculate_ema_list(prices, fast)
     ema_slow = calculate_ema_list(prices, slow)
     
-    # Align lists
     ema_fast_aligned = ema_fast[slow - fast:]
     
     macd_line = [(f - s) for f, s in zip(ema_fast_aligned, ema_slow)]
@@ -118,7 +114,6 @@ def calculate_macd_list(prices, fast=12, slow=26, signal=9):
     
     signal_line = calculate_ema_list(macd_line, signal)
     
-    # Align again
     macd_line_aligned = macd_line[len(macd_line) - len(signal_line):]
 
     histogram = [(m - s) for m, s in zip(macd_line_aligned, signal_line)]
@@ -136,15 +131,18 @@ def get_technical_indicators(platform, symbol):
         
         elif platform == 'hyperliquid':
             url = "https://api.hyperliquid.xyz/info"
+            # ############ التغيير هنا ############
             payload = {
                 "type": "candleSnapshot",
-                "coin": symbol.upper(),
-                "interval": "1m",
-                "startTime": int((time.time() - (CANDLE_COUNT + 50) * 60) * 1000),
-                "endTime": int(time.time() * 1000)
+                "req": {
+                    "coin": symbol.upper(),
+                    "interval": "1m",
+                    "startTime": int((time.time() - (CANDLE_COUNT + 50) * 60) * 1000),
+                    "endTime": int(time.time() * 1000)
+                }
             }
-            headers = {"Content-Type": "application/json"}
-            response = requests.post(url, json=payload, headers=headers, timeout=5)
+            # ############ نهاية التغيير ############
+            response = requests.post(url, json=payload, timeout=5)
             response.raise_for_status()
             data = response.json()
             close_prices = [float(candle['c']) for candle in data]
@@ -215,7 +213,7 @@ def check_for_opportunity(symbol_upper):
             tracked_trades[symbol_upper] = trade_data
             print(f"🔥 TRADE OPENED: {symbol_upper} ({signal}) @ ${entry_price:.4f}. Spread: {current_spread:.3f}%")
 
-# --- دوال WebSocket (لا تغيير هنا) ---
+# --- دوال WebSocket ---
 def on_message_binance(ws, message):
     payload = json.loads(message)
     if 'stream' not in payload or 'data' not in payload: return
@@ -261,7 +259,7 @@ def run_websocket_resilient(name, ws_url, on_message_func, on_open_func):
             print(f"[{name}] Connection lost. Reconnecting in 5 seconds...")
             time.sleep(5)
 
-# --- الخيوط العاملة (لا تغيير هنا) ---
+# --- الخيوط العاملة ---
 def pnl_monitor():
     print("--- PnL Monitor Thread Started (Fast-Paced) ---")
     while not stop_event.is_set():
@@ -323,9 +321,9 @@ def log_writer():
             except queue.Empty: continue
     print(f"--- Log writer finished. Data saved to {DATA_FILE} ---")
 
-# --- الدالة الرئيسية (لا تغيير هنا) ---
+# --- الدالة الرئيسية ---
 if __name__ == "__main__":
-    print("--- Starting Simulator (Pure Python TI Version with Hyperliquid API fix) ---")
+    print("--- Starting Simulator (Pure Python TI Version with API Fix) ---")
     threads = [
         threading.Thread(target=run_websocket_resilient, args=("Binance", "wss://fstream.binance.com/stream", on_message_binance, on_open_binance), daemon=True),
         threading.Thread(target=run_websocket_resilient, args=("Hyperliquid", "wss://api.hyperliquid.xyz/ws", on_message_hyperliquid, on_open_hyperliquid), daemon=True),
