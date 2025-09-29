@@ -44,4 +44,4 @@ jobs:
           # اسم المجلد الذي سيحتوي على الملف بعد فك الضغط
           name: trading-simulation-log
           # مسار الملف الذي تريد رفعه
-          path: trading_simulation_binance_only.csv
+          path: ./*.csv
