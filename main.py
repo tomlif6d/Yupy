@@ -123,7 +123,7 @@ def calculate_macd_list(prices, fast=12, slow=26, signal=9):
 def get_technical_indicators(platform, symbol):
     try:
         if platform == 'binance':
-            url = f"https://fapi.binance.us/fapi/v1/klines?symbol={symbol.upper()}&interval={CANDLE_INTERVAL}&limit={CANDLE_COUNT + 50}"
+            url = f"https://fapi.binance.com/fapi/v1/klines?symbol={symbol.upper()}&interval={CANDLE_INTERVAL}&limit={CANDLE_COUNT + 50}"
             response = requests.get(url, timeout=5)
             response.raise_for_status()
             data = response.json()
